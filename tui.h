@@ -29,9 +29,8 @@ namespace TUIUtils
 {
     void enableRawMode();
     void disableRawMode();
-    //     char c;
-    //     while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
-    //     }
+    void hideCursor();
+    void showCursor();
 }
 class TUI
 {

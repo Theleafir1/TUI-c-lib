@@ -17,6 +17,15 @@ void TUIUtils::disableRawMode() {
     raw.c_lflag |= (ECHO | ICANON);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
+void TUIUtils::hideCursor() {
+    printf("\033[?25l");
+    fflush(stdout);
+}
+
+void TUIUtils::showCursor() {
+    printf("\033[?25h");
+    fflush(stdout);
+}
 
 int TUI::getFrameNumber() {return frameCounter;}
 void TUI::calculateDiff()
@@ -68,11 +77,6 @@ void TUI::calculateDiff()
             diffLength += len;
         }
     }
-    char move[32];
-    int moveLen = sprintf(move, "\033[%d;%dH", windowWidth, windowWidth);
-    diff = (char *)realloc(diff, diffLength + moveLen);
-    memcpy(&diff[diffLength], move, moveLen);
-    diffLength += moveLen;
 }
 void TUI::updateSize()
 {
@@ -136,6 +140,7 @@ TUI::TUI() : frameCounter(0)
     for(int i = 0; i < 8; i++) saveBuffer[i] = nullptr;
     diff = (char *)malloc(1);
     TUIUtils::enableRawMode();
+    TUIUtils::hideCursor();
 }
 TUI::~TUI()
 {
@@ -148,6 +153,7 @@ TUI::~TUI()
             newBuffer = nullptr;
     }
     TUIUtils::disableRawMode();
+    TUIUtils::showCursor();
 }
 void TUI::save(int idx)
 {
