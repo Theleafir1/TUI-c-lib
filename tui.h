@@ -57,9 +57,6 @@ public:
     void print();
     void fill(Cell symbol);
 
-    void save(int idx);
-    void load(int idx, bool lose);
-
     void addchi(int idx, Cell ch);
     void addch(int x, int y, Cell ch);
 
@@ -67,5 +64,10 @@ public:
     void cgoto(int x, int y);
 
     void calculateDiff();
+    
+    void save(int idx);
+    void load(int idx, bool lose);
+
+    void drawSquare(int posX, int posY, int sizeX, int sizeY, Cell symbol);
 };
 #endif

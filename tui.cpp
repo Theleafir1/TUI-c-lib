@@ -1,3 +1,10 @@
+/*
+ *  TODO:
+ *  Allocate RAM by chunks instead of length of every cell
+ *  Rewrite in C
+ *  Implement "Pixels" ( "▀" "\u2580" )
+ */
+
 #include "tui.h"
 
 #include <stdlib.h>
@@ -30,11 +37,6 @@ void TUIUtils::showCursor() {
 int TUI::getFrameNumber() {return frameCounter;}
 void TUI::calculateDiff()
 {
-    /*
-        TODO:
-        Done: Implement checking for should we even add Move ESC-code
-        
-    */
     Color lastBg = (Color){1, 2, 3};
     Color lastFg = (Color){3, 2, 1};
     int lastIndex = 0;
@@ -198,4 +200,16 @@ void TUI::cgoto(int x, int y)
 {
     printf("\033[%d;%dH", y+1, x+1);
 }
-
+void TUI::drawSquare(int posX, int posY, int sizeX, int sizeY, Cell symbol)
+{
+    for (int y = 0; y < sizeY; y++)
+    {
+        addch(posX, posY + y, symbol);
+        addch(posX + sizeX - 1, posY + y, symbol);
+    }
+    for (int x = 0; x < sizeX; x++)
+    {
+        addch(posX + x, posY, symbol);
+        addch(posX + x, posY + sizeY - 1, symbol);
+    }
+}

@@ -1,205 +1,152 @@
-/*
-    PREVIEW
-    AI wrote this snake game so idk how it works
-*/
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 #include "tui.h"
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <termios.h>
-#include <fcntl.h>
-#include <time.h>
-#include <locale.h>
-#include <string.h>
 
-#define MAX_SNAKE 1000
-
-struct Snake {
-    int x[MAX_SNAKE];
-    int y[MAX_SNAKE];
-    int len;
-    int dirX, dirY;
-};
-
-int kbhit() {
-    struct timeval tv = {0, 0};
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(STDIN_FILENO, &fds);
-    return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+// Helper to convert a single byte to a 2-char hex string
+std::string byte_to_hex(unsigned char b) {
+    std::stringstream ss;
+    ss << std::hex << std::setw(2) << std::setfill('0') << (int)b;
+    return ss.str();
 }
 
-int getch() {
-    char c;
-    if (read(STDIN_FILENO, &c, 1) == 1) return c;
-    return -1;
-}
-
-// generating food 
-void spawnFood(int *foodX, int *foodY, Snake &snake, int w, int h) {
-    int freeCells = w * h - snake.len;
-    if (freeCells <= 0) {
-        *foodX = -1;
-        *foodY = -1;
-        return;
+void draw_text(TUI& tui, int x, int y, const std::string& text, Color fg, Color bg) {
+    for (size_t i = 0; i < text.length(); ++i) {
+        if (x + i < (size_t)tui.getWindowWidth()) {
+            Cell c;
+            memset(c.ch, 0, 4);
+            c.ch[0] = text[i];
+            c.fg = fg;
+            c.bg = bg;
+            tui.addch(x + i, y, c);
+        }
     }
-    int r = rand() % freeCells;
-    int idx = 0;
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            bool occupied = false;
-            for (int i = 0; i < snake.len; i++) {
-                if (snake.x[i] == x && snake.y[i] == y) {
-                    occupied = true;
-                    break;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <filename>" << std::endl;
+        return 1;
+    }
+
+    std::string filename = argv[1];
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return 1;
+    }
+
+    std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
+
+    TUI tui;
+    bool running = true;
+    size_t offset = 0;
+    
+    bool dynamic_width = true;
+    const int default_bytes_per_line = 16;
+    int bytes_per_line = default_bytes_per_line;
+
+    while (running) {
+        tui.update();
+
+        int width = tui.getWindowWidth();
+        int height = tui.getWindowHeight();
+        
+        if (dynamic_width) {
+            // 10 for offset, 2 for space between hex/ascii
+            int data_width = width - 10 - 2;
+            if (data_width < 0) data_width = 0;
+            // 3 for hex chars ("XX "), 1 for ascii
+            bytes_per_line = data_width / 4;
+            if (bytes_per_line < 4) bytes_per_line = 4;
+        } else {
+            bytes_per_line = default_bytes_per_line;
+        }
+
+        Cell default_cell;
+        default_cell.ch[0] = ' ';
+        default_cell.ch[1] = 0;
+        default_cell.fg = {200, 200, 200};
+        default_cell.bg = {20, 20, 20};
+        tui.fill(default_cell);
+        
+        // Draw Hex View
+        for (int y = 0; y < height - 1; ++y) {
+            size_t current_offset = offset + (y * bytes_per_line);
+            if (current_offset >= buffer.size()) break;
+
+            // 1. Offset column
+            std::stringstream ss_offset;
+            ss_offset << std::hex << std::setw(8) << std::setfill('0') << current_offset;
+            draw_text(tui, 0, y, ss_offset.str(), {100, 100, 255}, default_cell.bg);
+            
+            // 2. Hex bytes columns
+            for (int i = 0; i < bytes_per_line; ++i) {
+                if (current_offset + i < buffer.size()) {
+                    unsigned char byte = buffer[current_offset + i];
+                    draw_text(tui, 10 + i * 3, y, byte_to_hex(byte), default_cell.fg, default_cell.bg);
                 }
             }
-            if (!occupied) {
-                if (idx == r) {
-                    *foodX = x;
-                    *foodY = y;
-                    return;
-                }
-                idx++;
-            }
-        }
-    }
-    *foodX = -1;
-}
 
-int main() {
-    setlocale(LC_ALL, "");
-    srand(time(NULL));
-    TUI screen;
-    
-    Color white = {255, 255, 255};
-    
-    int startX = screen.getWindowWidth() / 2;
-    int startY = screen.getWindowHeight() / 2;
-    Snake snake;
-    snake.len = 3;
-    for (int i = 0; i < snake.len; i++) {
-        snake.x[i] = startX - i;
-        snake.y[i] = startY;
-    }
-    snake.dirX = 1;
-    snake.dirY = 0;
-    
-    int foodX, foodY;
-    spawnFood(&foodX, &foodY, snake, screen.getWindowWidth(), screen.getWindowHeight());
-    
-    int score = 0;
-    bool gameOver = false;
-    int speed = 100000;
-    
-    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
-    
-    while (!gameOver) {
-        bool resized = screen.update();
-        if (resized) {
-            // Перезапуск при ресайзе
-            startX = screen.getWindowWidth() / 2;
-            startY = screen.getWindowHeight() / 2;
-            snake.len = 3;
-            for (int i = 0; i < snake.len; i++) {
-                snake.x[i] = startX - i;
-                snake.y[i] = startY;
-            }
-            snake.dirX = 1;
-            snake.dirY = 0;
-            score = 0;
-            speed = 100000;
-            spawnFood(&foodX, &foodY, snake, screen.getWindowWidth(), screen.getWindowHeight());
-            screen.fill((Cell){{' ',0,0,0}, BLACK, BLACK});
-            screen.print();
-            continue;
-        }
-        
-        int ch = getch();
-        if (ch != -1) {
-            if (ch == 'w' || ch == 'W') {
-                if (snake.dirY != 1) { snake.dirX = 0; snake.dirY = -1; }
-            } else if (ch == 's' || ch == 'S') {
-                if (snake.dirY != -1) { snake.dirX = 0; snake.dirY = 1; }
-            } else if (ch == 'a' || ch == 'A') {
-                if (snake.dirX != 1) { snake.dirX = -1; snake.dirY = 0; }
-            } else if (ch == 'd' || ch == 'D') {
-                if (snake.dirX != -1) { snake.dirX = 1; snake.dirY = 0; }
-            } else if (ch == 'q') {
-                gameOver = true;
+            // 3. ASCII representation column
+            int ascii_start_col = 10 + bytes_per_line * 3 + 2;
+            for (int i = 0; i < bytes_per_line; ++i) {
+                if (current_offset + i < buffer.size()) {
+                    unsigned char byte = buffer[current_offset + i];
+                    char display_char = (isprint(byte)) ? byte : '.';
+                    std::string s(1, display_char);
+                    draw_text(tui, ascii_start_col + i, y, s, {200, 200, 100}, default_cell.bg);
+                }
             }
         }
-        
-        int newX = snake.x[0] + snake.dirX;
-        int newY = snake.y[0] + snake.dirY;
-        
-        if (newX < 0 || newX >= screen.getWindowWidth() ||
-            newY < 0 || newY >= screen.getWindowHeight()) {
-            gameOver = true;
-            break;
+
+        // Status Bar
+        Cell status_bg_cell;
+        status_bg_cell.ch[0] = ' '; status_bg_cell.ch[1] = 0;
+        status_bg_cell.fg = {0,0,0}; status_bg_cell.bg = {200,200,200};
+        for(int i=0; i<width; ++i) tui.addch(i, height - 1, status_bg_cell);
+
+        std::string status = "File: " + filename + " | q/й: Quit | w: Toggle dynamic width (" + (dynamic_width ? "On" : "Off") + ")";
+        if (status.length() > (size_t)width) {
+            status.resize(width);
         }
-        
-        bool ate = (newX == foodX && newY == foodY);
-        
-        for (int i = snake.len; i > 0; i--) {
-            snake.x[i] = snake.x[i-1];
-            snake.y[i] = snake.y[i-1];
-        }
-        snake.x[0] = newX;
-        snake.y[0] = newY;
-        
-        if (ate) {
-            snake.len++;
-            score++;
-            if (speed > 40000) speed -= 5000;
-            spawnFood(&foodX, &foodY, snake, screen.getWindowWidth(), screen.getWindowHeight());
-            if (foodX == -1) {
-                gameOver = true;
+        draw_text(tui, 0, height - 1, status, {0, 0, 0}, {200, 200, 200});
+
+
+        tui.print();
+
+        // Handle Input
+        int c = getchar();
+        switch (c) {
+            case 'q':
+                running = false;
                 break;
-            }
-        }
-        
-        for (int i = 1; i < snake.len; i++) {
-            if (snake.x[0] == snake.x[i] && snake.y[0] == snake.y[i]) {
-                gameOver = true;
+            case 'w':
+                dynamic_width = !dynamic_width;
                 break;
-            }
+            case 0xd0: // First byte of a 2-byte UTF-8 char in Cyrillic
+                if (getchar() == 0xb9) { // Second byte of 'й'
+                    running = false;
+                }
+                break;
+            case 27: // Escape sequence
+                getchar(); // Skip '['
+                switch(getchar()) {
+                    case 'A': // Up Arrow
+                        if (offset >= (size_t)bytes_per_line) offset -= bytes_per_line;
+                        else offset = 0;
+                        break;
+                    case 'B': // Down Arrow
+                        if (offset + (height - 1) * bytes_per_line < buffer.size()) {
+                            offset += bytes_per_line;
+                        }
+                        break;
+                }
+                break;
         }
-        
-        // Drawing
-        screen.fill((Cell){{' ',0,0,0}, BLACK, BLACK});
-        
-        for (int i = 0; i < snake.len; i++) {
-            Cell snakeCell = {{'O',0,0,0}, GREEN, BLACK};
-            if (i == 0) snakeCell = {{'@',0,0,0}, GREEN, BLACK};
-            screen.addch(snake.x[i], snake.y[i], snakeCell);
-        }
-        
-        screen.addch(foodX, foodY, (Cell){{'*',0,0,0}, RED, BLACK});
-        
-        char scoreStr[32];
-        sprintf(scoreStr, "Score: %d", score);
-        for (int i = 0; scoreStr[i] != '\0'; i++) {
-            screen.addch(i, 0, (Cell){{scoreStr[i],0,0,0}, white, BLACK});
-        }
-        
-        screen.print();
-        usleep(speed);
     }
-    
-    screen.fill((Cell){{' ',0,0,0}, BLACK, BLACK});
-    char msg[32];
-    sprintf(msg, "GAME OVER! Score: %d", score);
-    int msgLen = strlen(msg);
-    int startCol = (screen.getWindowWidth() - msgLen) / 2;
-    int row = screen.getWindowHeight() / 2;
-    for (int i = 0; i < msgLen; i++) {
-        screen.addch(startCol + i, row, (Cell){{msg[i],0,0,0}, RED, BLACK});
-    }
-    screen.print();
-    usleep(2000000);
-    
-    fcntl(STDIN_FILENO, F_SETFL, flags);
+
     return 0;
 }
