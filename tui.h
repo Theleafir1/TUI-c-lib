@@ -11,63 +11,62 @@
 #define BLUE    (Color){0, 0, 255,}
 #define BLACK   (Color){0, 0, 0,}
 
-struct Color{
+typedef struct
+{
     uint8_t r, g, b;
-    bool operator!=(const Color& other) const {
-        return memcmp(this, &other, sizeof(Color)) != 0;
-    }
-};
-struct Cell{
+} Color;
+
+typedef struct
+{
     char ch[4];
     Color fg, bg;
-    bool operator==(const Cell& other) const {
-        return memcmp(this, &other, sizeof(Cell)) == 0;
-    }
-};
+} Cell;
 
-namespace TUIUtils
+typedef struct
 {
-    void enableRawMode();
-    void disableRawMode();
-    void hideCursor();
-    void showCursor();
-}
-class TUI
-{
-private:
-    Cell *rawBuffer;
-    Cell *newBuffer;
-    Cell * saveBuffer[8];
+    Cell *inputBuffer;
+    Cell *screenBuffer;
     int windowSize;
     int windowHeight;
     int windowWidth;
-    long long frameCounter;
+    unsigned int frameCounter;
     char *diff;
     int diffLength;
-    void updateSize();
-    int getUTF8Len(unsigned char first_byte);
-public:
-    int getFrameNumber();
-    TUI();
-    ~TUI();
-    int getWindowHeight(); 
-    int getWindowWidth();
-    int getWindowSize();
-    bool update();
-    void print();
-    void fill(Cell symbol);
+} TUIContext;
 
-    void addchi(int idx, Cell ch);
-    void addch(int x, int y, Cell ch);
+void tui_selectContext(TUIContext* context);
 
-    void cgotoi(int idx);
-    void cgoto(int x, int y);
+void tui_init(TUIContext* context);
 
-    void calculateDiff();
-    
-    void save(int idx);
-    void load(int idx, bool lose);
+void tui_enableRawMode();
+void tui_disableRawMode();
+void tui_hideCursor();
+void tui_showCursor();
 
-    void drawSquare(int posX, int posY, int sizeX, int sizeY, Cell symbol);
-};
+void tui_updateSize();
+int  tui_getUTF8Len(unsigned char first_byte);
+
+int  tui_getFrameNumber();
+
+int  tui_getWindowHeight(); 
+int  tui_getWindowWidth();
+int  tui_getWindowSize();
+char tui_update(); // bool
+void tui_print();
+void tui_fill(Cell symbol);
+
+void tui_addchi(int idx, Cell ch);
+char tui_addch(int x, int y, Cell ch);
+
+void tui_cgotoi(int idx);
+void tui_cgoto(int x, int y);
+
+void tui_calculateDiff();
+
+void tui_drawSquare(int posX, int posY, int sizeX, int sizeY, Cell symbol);
+
+void tui_deinit();
+
+
+
 #endif

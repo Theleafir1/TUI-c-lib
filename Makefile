@@ -1,6 +1,6 @@
-CC = g++
+CC = cc
 CFLAGS = -Wall -Wextra
-SRC = main.cpp tui.cpp
+SRC = main.c tui.c
 OUT = nocurse
 
 .PHONY: all run clean re
