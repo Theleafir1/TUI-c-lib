@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <termios.h>
 
 #include "tui.h"
 
@@ -99,8 +100,6 @@ int main(int argc, char *argv[]) {
     int bytes_per_line = default_bytes_per_line;
 
     while (running) {
-        tui_update();
-
         int width = tui_getWindowWidth();
         int height = tui_getWindowHeight();
         

@@ -1,19 +1,18 @@
 #include <stdint.h>
 #include <string.h>
-#include <termios.h>
 #include <unistd.h>
 
 #ifndef _TUI_H
 #define _TUI_H
 
-#define RED     (Color){255, 0, 0}
-#define GREEN   (Color){0, 255, 0}
-#define BLUE    (Color){0, 0, 255,}
-#define BLACK   (Color){0, 0, 0,}
+#define RED     (Color){255,0,  0,  0}
+#define GREEN   (Color){0,  255,0,  0}
+#define BLUE    (Color){0,  0,  255,0}
+#define BLACK   (Color){0,  0,  0,  0}
 
 typedef struct
 {
-    uint8_t r, g, b;
+    uint8_t r, g, b, a;
 } Color;
 
 typedef struct
@@ -32,6 +31,7 @@ typedef struct
     unsigned int frameCounter;
     char *diff;
     int diffLength;
+    int diffSize;
 } TUIContext;
 
 void tui_selectContext(TUIContext* context);
@@ -51,7 +51,7 @@ int  tui_getFrameNumber();
 int  tui_getWindowHeight(); 
 int  tui_getWindowWidth();
 int  tui_getWindowSize();
-char tui_update(); // bool
+void tui_update();
 void tui_print();
 void tui_fill(Cell symbol);
 

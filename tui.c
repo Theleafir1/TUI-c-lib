@@ -1,29 +1,46 @@
 #include "tui.h"
 
+#include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <string.h>
+#include <termios.h>
 
-void tui_enableRawMode() {
-    struct termios raw;
-    tcgetattr(STDIN_FILENO, &raw);
+static struct termios orig_termios;
+static char tui_needForceRedraw = 0;
+
+void tui_enableRawMode()
+{
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    struct termios raw = orig_termios;
     raw.c_lflag &= ~(ECHO | ICANON);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
-void tui_disableRawMode() {
-    struct termios raw;
-    tcgetattr(STDIN_FILENO, &raw);
-    raw.c_lflag |= (ECHO | ICANON);
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+void tui_disableRawMode()
+{
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
-void tui_hideCursor() {
+
+static void tui_handleSIGWINCH(int sig)
+{
+    (void)sig;
+    tui_needForceRedraw = 1;
+    tui_update();
+    tui_print();
+}
+
+void tui_hideCursor()
+{
     printf("\033[?25l");
     fflush(stdout);
 }
 
-void tui_showCursor() {
+void tui_showCursor()
+{
     printf("\033[?25h");
     fflush(stdout);
 }
@@ -44,38 +61,34 @@ void tui_calculateDiff()
     ctx->diffLength = 0;
     for(int i = 0; i < ctx->windowSize; i++)
     {
-        if (memcmp(&ctx->inputBuffer[i], &ctx->screenBuffer[i], sizeof(Cell)) == 0) continue;
-        if (lastIndex != i)
+        if (!tui_needForceRedraw && memcmp(&ctx->inputBuffer[i], &ctx->screenBuffer[i], sizeof(Cell)) == 0) continue;
+        if (tui_needForceRedraw || lastIndex != i)
         {
             char move[32];
             int moveLen = sprintf(move, "\033[%d;%dH", i / ctx->windowWidth + 1, i % ctx->windowWidth + 1);
-            ctx->diff = (char *)realloc(ctx->diff, ctx->diffLength + moveLen);
             memcpy(&ctx->diff[ctx->diffLength], move, moveLen);
             ctx->diffLength += moveLen;
             lastIndex = i;
         }
-        if ( (memcmp(&ctx->inputBuffer[i].bg, &ctx->screenBuffer[i].bg, sizeof(Color)) != 0) || memcmp(&ctx->inputBuffer[i].bg, &lastBg, sizeof(Color)) != 0)
+        if ( (tui_needForceRedraw || memcmp(&ctx->inputBuffer[i].bg, &ctx->screenBuffer[i].bg, sizeof(Color)) != 0) || memcmp(&ctx->inputBuffer[i].bg, &lastBg, sizeof(Color)) != 0)
         {
             char bgString[20];
             int len = sprintf(bgString, "\033[48;2;%d;%d;%dm", ctx->inputBuffer[i].bg.r, ctx->inputBuffer[i].bg.g, ctx->inputBuffer[i].bg.b);
             lastBg = ctx->inputBuffer[i].bg;
-            ctx->diff = (char *)realloc(ctx->diff, ctx->diffLength + len);
             memcpy(&ctx->diff[ctx->diffLength], bgString, len);
             ctx->diffLength += len;
         }
-        if ( (memcmp(&ctx->inputBuffer[i].fg, &ctx->screenBuffer[i].fg, sizeof(Color)) != 0) || memcmp(&ctx->inputBuffer[i].fg, &lastFg, sizeof(Color)) != 0)
+        if ( (tui_needForceRedraw || memcmp(&ctx->inputBuffer[i].fg, &ctx->screenBuffer[i].fg, sizeof(Color)) != 0) || memcmp(&ctx->inputBuffer[i].fg, &lastFg, sizeof(Color)) != 0)
         {
             char fgString[20];
             int len = sprintf(fgString, "\033[38;2;%d;%d;%dm", ctx->inputBuffer[i].fg.r, ctx->inputBuffer[i].fg.g, ctx->inputBuffer[i].fg.b);
             lastFg = ctx->inputBuffer[i].fg;
-            ctx->diff = (char *)realloc(ctx->diff, ctx->diffLength + len);
             memcpy(&ctx->diff[ctx->diffLength], fgString, len);
             ctx->diffLength += len;
         }
-        if (memcmp(ctx->inputBuffer[i].ch, ctx->screenBuffer[i].ch, 4))
+        if (tui_needForceRedraw || memcmp(ctx->inputBuffer[i].ch, ctx->screenBuffer[i].ch, 4))
         {
             int len = tui_getUTF8Len((unsigned char)ctx->inputBuffer[i].ch[0]);
-            ctx->diff = (char *)realloc(ctx->diff, ctx->diffLength + len);
             memcpy(&ctx->diff[ctx->diffLength], &ctx->inputBuffer[i].ch , len);
             ctx->diffLength += len;
         }
@@ -96,18 +109,19 @@ int tui_getUTF8Len(unsigned char firstByte)
         if (firstByte < 240) return 3;
         return 4;
     }
-char tui_update() // returns true if screen was resized
+void tui_update()
 {
-    char wasResized = 0; // false
     int oldSize = ctx->windowSize;
     tui_updateSize();
     if (ctx->windowSize != oldSize)
     {
         ctx->inputBuffer = (Cell *)realloc(ctx->inputBuffer, ctx->windowSize * sizeof(Cell));
         ctx->screenBuffer = (Cell *)realloc(ctx->screenBuffer, ctx->windowSize * sizeof(Cell));
-        wasResized = 1; // true
+
+        memset(ctx->screenBuffer, 0, ctx->windowSize * sizeof(Cell));
+        ctx->diffSize = ctx->windowSize * 64;  // 64 is even worse than the worst case, just for sure
+        ctx->diff = (char *)realloc(ctx->diff, ctx->diffSize);
     }
-    return wasResized;
 }
 
 int tui_getWindowHeight() {return ctx->windowHeight;}
@@ -115,9 +129,11 @@ int tui_getWindowWidth() {return ctx->windowWidth;}
 int tui_getWindowSize() {return ctx->windowSize;}
 void tui_print()
 {
-    if (!ctx->frameCounter)
+    if (!ctx->frameCounter || tui_needForceRedraw)
     {
         printf("\033[2J\033[H");
+        fflush(stdout);
+        tui_needForceRedraw = 0;
     }
     ctx->frameCounter++;
     tui_calculateDiff();
@@ -142,9 +158,11 @@ void tui_init(TUIContext* context)
     ctx->screenBuffer = NULL;
     ctx->screenBuffer = (Cell *)calloc(ctx->windowSize, sizeof(Cell));
     tui_fill((Cell){" ", BLUE, BLUE});
-    ctx->diff = (char *)malloc(ctx->windowSize / 2 * sizeof(Cell));
+    ctx->diffSize = ctx->windowSize * 50;
+    ctx->diff = (char *)malloc(ctx->diffSize);
     tui_enableRawMode();
     tui_hideCursor();
+    signal(SIGWINCH, tui_handleSIGWINCH);
 }
 void tui_deinit()
 {
@@ -152,6 +170,8 @@ void tui_deinit()
         ctx->inputBuffer = NULL;
     free(ctx->screenBuffer);
         ctx->screenBuffer = NULL;
+    free(ctx->diff);
+        ctx->diff = NULL;
     tui_disableRawMode();
     tui_showCursor();
 }
@@ -190,4 +210,10 @@ void tui_drawSquare(int posX, int posY, int sizeX, int sizeY, Cell symbol)
         tui_addch(posX + x, posY, symbol);
         tui_addch(posX + x, posY + sizeY - 1, symbol);
     }
+}
+
+
+void tui_inputBox(int maxLen, const char* prompt, char* out)
+{
+    
 }
